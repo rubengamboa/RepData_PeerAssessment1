@@ -1,0 +1,182 @@
+# Reproducible Research: Peer Assessment 1
+
+This project examines data from a personal activity monitoring device.
+The data covers the months of October and November, 2012, and it consists
+of the number of steps taken in each 5-minute interval in those months.
+
+
+## Loading and preprocessing the data
+
+The data consists of three columns:
+
+* Steps: #steps taken
+
+* Date: date of observation
+
+* Interval: minute of day corresponding to start of 5-minute interval of 
+  observation
+
+```{r load-data}
+obs.data <- read.csv("activity.csv", header=TRUE, 
+                     colClasses=c("integer", "Date", "integer"))
+summary(obs.data)
+```
+The time for the interval data is stored in the format HHMM, which is very 
+misleading when plotted as an integer. So we convert it into the format mmmm,
+which is the number of minutes since midnight.
+```{r convert-data}
+obs.data$interval <- 60 * (obs.data$interval %/% 100) + (obs.data$interval %% 100)
+summary(obs.data)
+```
+
+## What is mean total number of steps taken per day?
+
+The first question to be answered is the mean total number of steps taken
+per day.  To find this, first compute the total number of steps taken
+each day, then average the results.
+
+```{r aggregate-by-day}
+obs.by.date <- aggregate(steps ~ date, obs.data, sum)
+summary(obs.by.date)
+```
+
+As you can see, the **mean** total number of steps taken per day is
+`r sprintf("%.2f", mean(obs.by.date$steps))`, and the 
+**median** is `r sprintf("%d", median(obs.by.date$steps))`.  The following
+figure gives a better overview of the distribution.
+```{r total-number-of-steps-per-day}
+hist(obs.by.date$steps, breaks=20, col="red",
+     main="Total Number of Steps Taken per Day",
+     xlab="Steps Taken", ylab="Frequency")
+```
+
+## What is the average daily activity pattern?
+
+The next question concerns the average daily activity pattern, or how
+the activities varies by time.  This is best seen in a line graph,
+after averaging the data by time of day.
+
+```{r plot-aggregate-by-time-of-day}
+obs.by.interval <- aggregate(steps ~ interval, obs.data, mean)
+plot(obs.by.interval, type="l", col="red",
+     main="Steps Taken on an Average Day",
+     xlab="Minute of Day",
+     ylab="# of Steps")
+
+```
+
+From the graph, it is clear that **peak activity** occurs around the 500th
+minute, or 8am.  Analytically, we can also find the actual interval with
+the peak activity and convert it to a time as follows.
+
+```{r max-steps-by-time-of-day}
+idx <- which.max(obs.by.interval$steps)
+minute <- obs.by.interval[idx, "interval"]
+paste ((minute %/% 60), (minute %% 60), sep=":")
+```
+
+## Imputing missing values
+
+Unfortunately, the data has a lot of missing values.  As the following
+table shows, there are `r sum(is.na(obs.data$steps))` **missing values**
+in the steps column.  The other columns do not contain any missing values.
+
+```{r data-summary}
+summary(obs.data)
+```
+
+There are different ways of eliminating these missing values, such as
+filling with the previous known value or using an average.  For this 
+study, it makes sense to fill with the median value based on the time
+interval. There is great variability based on the time of day, so that
+definitely should be taken into account. Moreover, the median is more
+robust in the prescence of outliers, such as a day walking at the park 
+or relaxing at the beach.  The effect is easily seen in a histogram 
+as follows.  The big change is that there now a significant number of
+days when between 1,000 and 2,000 steps were taken.
+
+```{r fill-in-missing-values}
+obs.by.interval.median <- aggregate(steps ~ interval, obs.data, median)
+obs.data.fill <- merge(x = obs.data, 
+                       y = obs.by.interval.median, 
+                       by = "interval")
+obs.data.fill$steps <- obs.data.fill$steps.x
+obs.data.fill$steps.x <- NULL
+nans <- which(is.na(obs.data.fill$steps))
+obs.data.fill$steps[nans] <- obs.data.fill$steps.y[nans]
+obs.data.fill$steps.y <- NULL
+summary(obs.data.fill)
+obs.by.date.fill <- aggregate(steps ~ date, obs.data.fill, sum)
+hist(obs.by.date.fill$steps, breaks=20, col="red",
+     main="Total Number of Steps Taken per Day (After Filling)",
+     xlab="Steps Taken", ylab="Frequency")
+
+```
+
+More analytically, the data can be summarized as follows.  
+
+```{r fill-in-missing-values-summary}
+summary(obs.by.date.fill)
+```
+
+Notice
+there are no missing values, and that the **mean** and **median** 
+number of steps per day are now 
+`r sprintf("%.2f", mean(obs.by.date.fill$steps))`
+and `r sprintf("%d", median(obs.by.date.fill$steps))`, respectively.
+Compared to the original values of 
+`r sprintf("%.2f", mean(obs.by.date$steps))` and 
+`r sprintf("%d", median(obs.by.date$steps))`,
+this confirms that the effect of removing the NA values 
+is to illustrate the days in which between 1,000 and 2,000
+steps were taken, which are considerably below the original
+mean and median.
+
+## Are there differences in activity patterns between weekdays and weekends?
+
+The final analysis concerns the effect of weekends on activity
+levels.  First, each datapoint is classified as either corresponding
+to a weekday or weekend.  Then, the data is separated using this
+classification, and each subset of the data is separately averaged.
+The result, which follows, is a graph clearly showing the different
+activity patterns on weekends.
+
+```{r activity-on-weekends}
+obs.data.fill$weekday <- weekdays(obs.data.fill$date)
+obs.data.fill$daytype <- "weekday"
+obs.data.fill$daytype[obs.data.fill$weekday == 'Saturday'] <- "weekend"
+obs.data.fill$daytype[obs.data.fill$weekday == 'Sunday']   <- "weekend"
+obs.data.fill$daytype = factor(obs.data.fill$daytype)
+obs.data.fill$weekday <- NULL
+
+obs.data.fill.weekday <- subset(obs.data.fill, daytype == "weekday")
+obs.data.fill.weekend <- subset(obs.data.fill, daytype == "weekend")
+
+obs.by.interval.weekday <- aggregate(steps ~ interval, 
+                                     obs.data.fill.weekday, 
+                                     mean)
+obs.by.interval.weekday$daytype <- "weekday"
+obs.by.interval.weekend <- aggregate(steps ~ interval, 
+                                     obs.data.fill.weekend, 
+                                     mean)
+obs.by.interval.weekend$daytype <- "weekend"
+obs.by.interval.combined <- rbind(obs.by.interval.weekday, 
+                                 obs.by.interval.weekend)
+obs.by.interval.combined$daytype <-
+  factor(obs.by.interval.combined$daytype)
+
+
+library(ggplot2)
+ggplot(obs.by.interval.combined, 
+       aes(x=interval, y=steps)) + 
+  labs(title="Steps Taken on an Average Day",
+       x="Minute of Day",
+       y="# of Steps") +
+  geom_line() +
+  facet_grid(daytype ~ .)
+```
+
+As the graph clearly shows, less activity occurs in the early morning
+of weekends, as the subjects are more likely to sleep in.  However,
+the activity overall is higher during the days on weekends than on
+weekdays, perhaps reflecting a sedentary workplace.
